@@ -27,6 +27,8 @@ dependencies = [
     "holoviews>=1.18",
     "hvplot>=0.9",
     "numpy>=1.24",
+    "pandas-stubs>=3.0.0.260204",
+    "pyarrow>=24.0.0",
 ]
 
 [project.optional-dependencies]
