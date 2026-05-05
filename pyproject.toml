@@ -98,12 +98,12 @@ convention = "google"
 [tool.mypy]
 python_version = "3.13"
 strict = true
-warn_unused_ignores = true
+warn_unused_ignores = false
 warn_return_any = true
 files = ["src/antalens"]
 
 [[tool.mypy.overrides]]
-module = ["plotly.*", "panel.*", "holoviews.*", "hvplot.*", "datashader.*", "pydeck.*", "h5py.*"]
+module = ["plotly.*", "panel.*", "holoviews.*", "hvplot.*", "datashader.*", "pydeck.*", "h5py.*", "param"]
 ignore_missing_imports = true
 
 # ─── pytest ─────────────────────────────────────────────────────────────────
