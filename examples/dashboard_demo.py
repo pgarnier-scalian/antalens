@@ -13,6 +13,7 @@ import panel as pn
 from antalens import io
 from antalens.dash import Dashboard
 from antalens.lens import Lens
+from antalens.link import link
 
 
 def main() -> None:
@@ -43,22 +44,17 @@ def main() -> None:
 
     dash = Dashboard(title=path.stem, subtitle=f"{filter_col} explorer", lens=lens)
     dash.add_control(picker)
-    dash.add_pane(
-        reactive_ds.plot.timeseries(y, sizing_mode="stretch_width", height=320),
-        width_pct=100,
+    bar_pane = ds.plot.bar(
+        x=filter_col, y=y, agg="mean", sort="desc", sizing_mode="stretch_width", height=300
     )
-    dash.add_pane(
-        ds.plot.bar(
-            x=filter_col, y=y, agg="mean", sort="desc", sizing_mode="stretch_width", height=300
-        ),
-        width_pct=50,
-    )
-    dash.add_pane(
-        ds.plot.bar(
-            x=filter_col, y=y, agg="max", orientation="h", sizing_mode="stretch_width", height=300
-        ),
-        width_pct=50,
-    )
+    ts_pane = reactive_ds.plot.timeseries(y, sizing_mode="stretch_width", height=320)
+
+    # Click a bar in the bar pane → updates lens.variable → re-filters ts_pane
+    link(bar_pane, on="bar_click", set=lens.param.variable)
+    link(ts_pane, on="point_click", set=lens.param.variable, transform=lambda x: None)
+
+    dash.add_pane(ts_pane, width_pct=100)
+    dash.add_pane(bar_pane, width_pct=100)
     dash.serve(port=5006)
 
 

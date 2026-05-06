@@ -18,13 +18,13 @@ Example:
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import plotly.graph_objects as go
 import polars as pl
 
 from antalens.data.dataset import Dataset
-from antalens.plots._base import BasePlot, assert_column_exists
+from antalens.plots._base import BasePlot, EventExtractor, assert_column_exists
 from antalens.theme import get_active_theme
 
 # Aggregation function names. Subset of polars-supported operations.
@@ -134,6 +134,20 @@ class BarPlot(BasePlot):
             showlegend=False,
         )
         return self.apply_theme(fig)
+
+    def event_extractors(self) -> dict[str, EventExtractor]:
+        """Expose ``bar_click``: emits the clicked category."""
+        return {"bar_click": self._extract_bar_click}
+
+    def _extract_bar_click(self, event: Any) -> Any:
+        """Extract the clicked category from a Plotly bar click event.
+
+        For vertical bars the category is on x; for horizontal it's on y.
+        """
+        if not event or "points" not in event or not event["points"]:
+            return None
+        point = event["points"][0]
+        return point.get("x") if self.orientation == "v" else point.get("y")
 
     # ── internals ─────────────────────────────────────────────────────────
 

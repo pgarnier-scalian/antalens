@@ -33,7 +33,7 @@ import plotly.graph_objects as go
 import polars as pl
 
 from antalens.data.dataset import Dataset
-from antalens.plots._base import BasePlot, assert_column_exists
+from antalens.plots._base import BasePlot, EventExtractor, assert_column_exists
 from antalens.theme import get_active_theme
 
 
@@ -143,6 +143,17 @@ class TimeSeriesPlot(BasePlot):
             showlegend=self.by is not None,
         )
         return self.apply_theme(fig)
+
+    def event_extractors(self) -> dict[str, EventExtractor]:
+        """Expose ``point_click`` and ``xrange_select``.
+
+        - ``point_click``: emits the clicked x value (a timestamp).
+        - ``xrange_select``: emits a ``(start, end)`` tuple of timestamps.
+        """
+        return {
+            "point_click": _extract_point_click_x,
+            "xrange_select": _extract_xrange_select,
+        }
 
     # ── trace construction ─────────────────────────────────────────────────
 
@@ -270,3 +281,30 @@ def _hex_to_rgba(hex_color: str, alpha: float = 1.0) -> str:
         return hex_color
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return f"rgba({r},{g},{b},{alpha})"
+
+
+def _extract_point_click_x(event: Any) -> Any:
+    """Extract the x coordinate from a Plotly point click event."""
+    if not event or "points" not in event:
+        return None
+    points = event["points"]
+    if not points:
+        return None
+    return points[0].get("x")
+
+
+def _extract_xrange_select(event: Any) -> tuple[Any] | None:
+    """Extract the (start, end) range from a Plotly box-select on x.
+
+    Returns None if the event isn't a usable range select.
+    """
+    if not event:
+        return None
+    rng = event.get("range") or event.get("xaxis.range")
+    if not rng:
+        return None
+    if isinstance(rng, dict):
+        rng = rng.get("x") or rng.get("xaxis")
+    if isinstance(rng, list | tuple) and len(rng) == 2:
+        return tuple(rng)
+    return None

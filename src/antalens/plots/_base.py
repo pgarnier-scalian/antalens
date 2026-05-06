@@ -24,12 +24,16 @@ customization.
 from __future__ import annotations
 
 import abc
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import plotly.graph_objects as go
 
 from antalens.data.dataset import Dataset
 from antalens.theme import get_active_theme
+
+EventExtractor = Callable[[Any], Any]
+"""A function from raw Panel event payload to bound-parameter value."""
 
 if TYPE_CHECKING:
     import panel as pn
@@ -96,32 +100,43 @@ class BasePlot(abc.ABC):
         )
         return fig
 
+    def event_extractors(self) -> dict[str, EventExtractor]:
+        """Map event names to functions that extract a value from event data.
+
+        Each plot subclass overrides this to declare which Plotly events
+        it exposes and how to interpret them. The :func:`~antalens.link.link`
+        function uses this registry to wire pane events to Lens parameters
+        without knowing the per-chart-type semantics.
+
+        Returns:
+            A dict mapping event name (e.g. ``"bar_click"``) to an
+            extractor callable. The extractor receives the raw Panel event
+            payload and returns the value to assign to the bound parameter,
+            or ``None`` to skip the assignment.
+
+            Default: empty dict (no events exposed).
+        """
+        return {}
+
     def to_pane(self, **pane_kwargs: Any) -> pn.viewable.Viewable:
         """Wrap the built figure in a Panel pane.
 
-        If the bound dataset has reactive bindings, this method registers
-        watchers on each watched parameter so the pane refreshes when any
-        of them mutate.
-
-        Args:
-            **pane_kwargs: Forwarded to :class:`panel.pane.Plotly`.
-                Useful for setting ``sizing_mode``, ``height``, etc.
-
-        Returns:
-            A Panel viewable. Static for non-reactive datasets, reactive
-            otherwise.
+        ... (keep existing docstring)
         """
         import panel as pn
 
         watched = self.dataset.watched_parameters
         if not watched:
-            return pn.pane.Plotly(self.build(), **pane_kwargs)  # type: ignore
+            pane = pn.pane.Plotly(self.build(), **pane_kwargs)  # type: ignore
+        else:
+            bound = pn.bind(lambda *_args: self.build(), *watched)
+            pane = pn.pane.Plotly(bound, **pane_kwargs)  # type: ignore
 
-        # Reactive path: bind the build call to all watched parameters.
-        # pn.bind() returns a function reference whose result Panel
-        # re-evaluates whenever any of the bound parameters change.
-        bound = pn.bind(lambda *_args: self.build(), *watched)
-        return pn.pane.Plotly(bound, **pane_kwargs)  # type: ignore
+        # Attach the source plot reference so link() can discover the
+        # event vocabulary later. Stored as a private attribute so it
+        # doesn't pollute Panel's namespace.
+        pane._antalens_plot = self  # type: ignore[attr-defined]
+        return pane
 
 
 def assert_column_exists(dataset: Dataset, column: str, role: str = "column") -> None:
