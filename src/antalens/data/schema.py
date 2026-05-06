@@ -31,6 +31,8 @@ _TIME_COLUMN_HINTS: tuple[str, ...] = (
     "date",
     "valid_time",
     "ts",
+    "absolute_time_index",
+    "block_time_index",
 )
 
 # Column names that are treated as geo coordinates or area identifiers.

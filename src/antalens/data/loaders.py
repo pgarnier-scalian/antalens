@@ -164,7 +164,13 @@ def load_csv(
     if isinstance(path, Path):
         _check_path_exists(path)
 
-    lf = pl.scan_csv(source, try_parse_dates=parse_dates, **read_kwargs)
+    null_values = read_kwargs.pop("null_values", ["", "None", "NA", "NaN", "null"])
+    lf = pl.scan_csv(
+        source,
+        try_parse_dates=parse_dates,
+        null_values=null_values,
+        **read_kwargs,
+    )
     schema = infer_schema(lf, time_col=time_col)
     return Dataset(lf, schema=schema, name=name)
 

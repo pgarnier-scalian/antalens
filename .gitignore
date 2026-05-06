@@ -44,3 +44,6 @@ Thumbs.db
 
 # Snapshots — review before commit
 .syrupy/
+
+# data
+/data
