@@ -24,6 +24,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from antalens.theme.stack_templates import (
+    BASE,
+    ECO2MIX,
+    StackLayer,
+    StackTemplate,
+    get_template,
+    register_template,
+)
+
+__all__ = [
+    "BASE",
+    "ECO2MIX",
+    "StackLayer",
+    "StackTemplate",
+    "get_template",
+    "register_template",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class PlotlyTheme:

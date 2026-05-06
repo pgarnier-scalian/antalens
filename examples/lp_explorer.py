@@ -151,15 +151,41 @@ def main() -> None:
             agg="mean",
             sort="desc",
             sizing_mode="stretch_width",
-            height=300,
+            height=280,
         )
         ts = snapshot_top.plot.timeseries(
             "value",
             by="component",
             sizing_mode="stretch_width",
+            height=300,
+        )
+        # Build a per-component template using a simple palette so the
+        # stack works on data with arbitrary component names.
+        from antalens.theme import get_active_theme
+        from antalens.theme.stack_templates import StackLayer, StackTemplate
+
+        palette = get_active_theme().palette_categorical
+        components_in_data = (
+            df.group_by("component")
+            .agg(pl.col("value").sum().alias("__total"))
+            .sort("__total", descending=True)["component"]
+            .to_list()
+        )
+        custom_template = StackTemplate(
+            name="lp_components",
+            layers=tuple(
+                StackLayer(c, palette[i % len(palette)]) for i, c in enumerate(components_in_data)
+            ),
+        )
+        stack = snapshot.plot.stack(
+            stack_by="component",
+            y="value",
+            template=custom_template,
+            agg="sum",
+            sizing_mode="stretch_width",
             height=320,
         )
-        return pn.Column(bar, ts, sizing_mode="stretch_width")
+        return pn.Column(ts, bar, stack, sizing_mode="stretch_width")
 
     charts = pn.bind(_build_charts, lens.param.variable, lens.param.mc)
 

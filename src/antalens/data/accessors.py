@@ -121,3 +121,32 @@ class PlotAccessor:
             title=title,
         )
         return plot.to_pane(**pane_kwargs)
+
+    def stack(
+        self,
+        *,
+        stack_by: str,
+        y: str = "value",
+        template: Any = "eco2mix",
+        load: str | None = None,
+        agg: str = "sum",
+        title: str | None = None,
+        **pane_kwargs: Any,
+    ) -> pn.viewable.Viewable:
+        """Build a stacked-area production chart.
+
+        Wraps :class:`~antalens.plots.stack.ProductionStack`. See that
+        class for parameter semantics.
+        """
+        from antalens.plots.stack import ProductionStack
+
+        plot = ProductionStack(
+            self._dataset,
+            stack_by=stack_by,
+            y=y,
+            template=template,
+            load=load,
+            agg=agg,  # type: ignore[arg-type]
+            title=title,
+        )
+        return plot.to_pane(**pane_kwargs)
