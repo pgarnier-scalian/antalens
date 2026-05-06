@@ -42,6 +42,8 @@ if TYPE_CHECKING:
     import pandas as pd
     import param
 
+    from antalens.data.accessors import PlotAccessor
+
 # Aggregation function names accepted by ``resample()``.
 ResampleAgg = Literal["mean", "sum", "min", "max", "median", "count", "std"]
 
@@ -208,9 +210,16 @@ class Dataset:
         """
         lf = self._lf
         new_bindings: list[ReactiveBinding] = []
+        all_columns = self.columns
 
         # ── area ───────────────────────────────────────────────────────────
         if area is not None:
+            if "area" not in all_columns:
+                raise ValueError(
+                    "filter(area=...) requires a column named 'area' on "
+                    "the dataset. Available columns: "
+                    f"{all_columns!r}"
+                )
             current, watched = resolve_filter_value("area", area)
             if watched is not None:
                 # Reactive: defer the filter to materialization time.
@@ -220,6 +229,12 @@ class Dataset:
 
         # ── variable ───────────────────────────────────────────────────────
         if variable is not None:
+            if "variable" not in all_columns:
+                raise ValueError(
+                    "filter(variable=...) requires a column named 'variable' "
+                    "on the dataset. Available columns: "
+                    f"{all_columns!r}"
+                )
             current, watched = resolve_filter_value("variable", variable)
             if watched is not None:
                 new_bindings.append(self._make_membership_binding("variable", watched))
@@ -479,6 +494,18 @@ class Dataset:
             f"categorical={list(self.schema.categorical_cols)!r}"
             f")"
         )
+
+    @property
+    def plot(self) -> PlotAccessor:
+        """Fluent accessor for plot builders.
+
+        Returns a :class:`~antalens.data.accessors.PlotAccessor` bound to
+        this dataset. Use as ``ds.plot.timeseries(...)``,
+        ``ds.plot.heatmap(...)``, etc.
+        """
+        from antalens.data.accessors import PlotAccessor
+
+        return PlotAccessor(self)
 
     # ── internal helpers ───────────────────────────────────────────────────
 
