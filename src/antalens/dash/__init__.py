@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from antalens.dash.components import SectionTitle
 from antalens.dash.dashboard import Dashboard
 
-__all__ = ["Dashboard"]
+__all__ = ["Dashboard", "SectionTitle"]

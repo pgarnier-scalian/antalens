@@ -84,6 +84,7 @@ class Dashboard:
         "_header_extras",
         "_layout_cache",
         "_panes",
+        "_status_items",
         "lens",
         "subtitle",
         "title",
@@ -110,6 +111,7 @@ class Dashboard:
         self._panes: list[_PaneEntry] = []
         self._controls: list[pn.viewable.Viewable] = []
         self._header_extras: list[pn.viewable.Viewable] = []
+        self._status_items: list[str] = []
         self._layout_cache: pn.viewable.Viewable | None = None
 
     # ── pane management ───────────────────────────────────────────────────
@@ -183,6 +185,26 @@ class Dashboard:
         self._header_extras.append(widget)
         self._invalidate_cache()
 
+    def add_status_item(self, text: str) -> None:
+        """Append a small text item to the bottom status bar.
+
+        Useful for showing always-visible context: "MC YEARS: 30",
+        "LIVE", or version strings. Items render in monospace.
+        """
+        self._status_items.append(text)
+        self._invalidate_cache()
+
+    def _build_status_bar(self) -> pn.viewable.Viewable | None:
+        """Return the status bar viewable, or None if no items."""
+        if not self._status_items:
+            return None
+        spans = " · ".join(self._status_items)
+        return pn.pane.HTML(
+            spans,
+            css_classes=["antalens-statusbar"],
+            sizing_mode="stretch_width",
+        )  # type: ignore
+
     # ── serving and embedding ─────────────────────────────────────────────
 
     def assemble(self) -> pn.viewable.Viewable:
@@ -191,6 +213,9 @@ class Dashboard:
         Called by :meth:`serve` and :meth:`servable`. Public so callers
         can embed the layout in a notebook or larger Panel app.
         """
+        import panel as pn
+
+        pn.config.theme = "dark"  # type: ignore
         if self._layout_cache is not None:
             return self._layout_cache
 
@@ -209,9 +234,12 @@ class Dashboard:
             main,
             sizing_mode="stretch_width",
         )
+        sections = [header, body]
+        status_bar = self._build_status_bar()
+        if status_bar is not None:
+            sections.append(status_bar)
         layout = pn.Column(
-            header,
-            body,
+            *sections,
             sizing_mode="stretch_width",
             min_height=800,
         )
@@ -253,15 +281,24 @@ class Dashboard:
         raise KeyError(f"no pane with id {pane_id!r}")
 
     def _build_header(self) -> pn.viewable.Viewable:
-        title_md = pn.pane.Markdown(
-            f"<h1>{self.title}</h1>"
-            + (f"<span class='subtitle'>{self.subtitle}</span>" if self.subtitle else ""),
-            sizing_mode="stretch_width",
+        title_html = f"<h1>{self.title}</h1>"
+        if self.subtitle:
+            title_html += f"<span class='subtitle'>{self.subtitle}</span>"
+
+        title_block = pn.pane.HTML(
+            title_html,
+            css_classes=["antalens-header-title"],
         )  # type: ignore
-        items: list[pn.viewable.Viewable] = [title_md]
-        items.extend(self._header_extras)
-        row = pn.Row(*items, css_classes=["antalens-header"], sizing_mode="stretch_width")
-        return row
+        extras_block = pn.Row(
+            *self._header_extras,
+            css_classes=["antalens-header-extras"],
+        )
+        return pn.Row(
+            title_block,
+            extras_block,
+            css_classes=["antalens-header"],
+            sizing_mode="stretch_width",
+        )
 
     def _build_sidebar(self) -> pn.viewable.Viewable:
         return pn.Column(

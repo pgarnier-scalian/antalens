@@ -12,6 +12,7 @@ import panel as pn
 
 from antalens import io
 from antalens.dash import Dashboard
+from antalens.dash.components import SectionTitle
 from antalens.lens import Lens
 from antalens.link import link
 
@@ -36,13 +37,34 @@ def main() -> None:
     lens = Lens(variable=options[0])
     reactive_ds = ds.filter(**{filter_col: lens.param.variable})
 
+    WIDGET_CSS = """
+    :host {
+        --bokeh-input-bg: #111418;
+        --bokeh-input-text: #9dafc0;
+        --bokeh-input-border: #2a3240;
+    }
+    select, .bk-input {
+        background: #111418 !important;
+        color: #9dafc0 !important;
+        border: 1px solid #2a3240 !important;
+        border-radius: 4px;
+        padding: 5px 8px;
+        font-family: inherit;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    """
+
     picker = pn.widgets.Select.from_param(
         lens.param.variable,
         options=options,
         name=filter_col,
+        stylesheets=[WIDGET_CSS],
+        sizing_mode="stretch_width",
     )
 
     dash = Dashboard(title=path.stem, subtitle=f"{filter_col} explorer", lens=lens)
+    dash.add_control(SectionTitle("Filter"))
     dash.add_control(picker)
     bar_pane = ds.plot.bar(
         x=filter_col, y=y, agg="mean", sort="desc", sizing_mode="stretch_width", height=300
@@ -55,6 +77,11 @@ def main() -> None:
 
     dash.add_pane(ts_pane, width_pct=100)
     dash.add_pane(bar_pane, width_pct=100)
+
+    dash.add_status_item("LIVE")
+    dash.add_status_item(f"ROWS: {ds.to_dataframe().height:,}")
+    dash.add_status_item("antalens v0.2-dev")
+
     dash.serve(port=5006)
 
 
