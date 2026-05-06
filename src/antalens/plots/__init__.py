@@ -17,6 +17,7 @@ Example:
 from __future__ import annotations
 
 from antalens.plots._base import BasePlot
+from antalens.plots.bar import BarPlot
 from antalens.plots.timeseries import TimeSeriesPlot
 
-__all__ = ["BasePlot", "TimeSeriesPlot"]
+__all__ = ["BarPlot", "BasePlot", "TimeSeriesPlot"]

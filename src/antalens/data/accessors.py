@@ -92,3 +92,32 @@ class PlotAccessor:
             title=title,
         )
         return plot.to_pane(**pane_kwargs)
+
+    def bar(
+        self,
+        x: str,
+        y: str,
+        *,
+        agg: str = "mean",
+        sort: str | None = None,
+        orientation: str = "v",
+        title: str | None = None,
+        **pane_kwargs: Any,
+    ) -> pn.viewable.Viewable:
+        """Build a categorical bar chart.
+
+        Wraps :class:`~antalens.plots.bar.BarPlot`. See that class for
+        parameter semantics.
+        """
+        from antalens.plots.bar import BarPlot
+
+        plot = BarPlot(
+            self._dataset,
+            x,
+            y,
+            agg=agg,  # type: ignore[arg-type]
+            sort=sort,  # type: ignore[arg-type]
+            orientation=orientation,  # type: ignore[arg-type]
+            title=title,
+        )
+        return plot.to_pane(**pane_kwargs)

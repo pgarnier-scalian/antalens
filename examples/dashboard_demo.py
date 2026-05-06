@@ -47,13 +47,16 @@ def main() -> None:
         reactive_ds.plot.timeseries(y, sizing_mode="stretch_width", height=320),
         width_pct=100,
     )
-    # Add a second pane (same chart for now) to prove multi-pane layout works
     dash.add_pane(
-        reactive_ds.plot.timeseries(y, sizing_mode="stretch_width", height=320),
+        ds.plot.bar(
+            x=filter_col, y=y, agg="mean", sort="desc", sizing_mode="stretch_width", height=300
+        ),
         width_pct=50,
     )
     dash.add_pane(
-        reactive_ds.plot.timeseries(y, sizing_mode="stretch_width", height=320),
+        ds.plot.bar(
+            x=filter_col, y=y, agg="max", orientation="h", sizing_mode="stretch_width", height=300
+        ),
         width_pct=50,
     )
     dash.serve(port=5006)
