@@ -23,10 +23,9 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from antalens.theme.stack_templates import (
-    BASE,
-    ECO2MIX,
     StackLayer,
     StackTemplate,
     get_template,
@@ -34,13 +33,36 @@ from antalens.theme.stack_templates import (
 )
 
 __all__ = [
-    "BASE",
-    "ECO2MIX",
     "StackLayer",
     "StackTemplate",
     "get_template",
+    "load_stack_template",
     "register_template",
 ]
+
+
+def load_stack_template(path: str | Path) -> StackTemplate:
+    """Load a stack template from a YAML file.
+
+    Convenience wrapper around :meth:`StackTemplate.from_yaml` for users
+    who expect a loader function at the package level.
+
+    Args:
+        path: Path to a YAML file containing a stack template.
+
+    Returns:
+        A :class:`StackTemplate` instance.
+
+    Raises:
+        FileNotFoundError: If the YAML file doesn't exist.
+
+    Examples:
+        >>> import antalens.theme as theme
+        >>> tmpl = theme.load_stack_template("catalogs/examples/gems.yml")
+        >>> tmpl.name
+        'gems'
+    """
+    return StackTemplate.from_yaml(path)
 
 
 @dataclass(frozen=True, slots=True)

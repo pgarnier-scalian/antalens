@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Bash(just check *)",
+      "Bash(just type *)",
+      "Bash(just lint *)",
+      "Bash(just test *)",
+      "Bash(python *)",
+      "Bash(mypy *)",
+      "Bash(pytest tests/ -m \"not slow\" -x -v)",
+      "Bash(ruff check *)"
+    ]
+  }
+}

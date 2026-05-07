@@ -16,7 +16,7 @@ Every loader accepts:
 - ``name`` to attach a human-readable label.
 - Format-specific keyword arguments forwarded to the underlying reader.
 
-Optional formats (HDF5, ANTARES studies, SQL) live in submodules gated
+Optional formats (HDF5, legacy studies, SQL) live in submodules gated
 by install extras. Importing them without the extras installed raises a
 helpful :class:`ImportError`.
 """

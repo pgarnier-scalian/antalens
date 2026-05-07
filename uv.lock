@@ -70,6 +70,7 @@ dependencies = [
     { name = "plotly" },
     { name = "polars" },
     { name = "pyarrow" },
+    { name = "pyyaml" },
     { name = "xarray" },
 ]
 
@@ -130,6 +131,7 @@ requires-dist = [
     { name = "polars", specifier = ">=0.20" },
     { name = "pyarrow", specifier = ">=24.0.0" },
     { name = "pydeck", marker = "extra == 'maps'", specifier = ">=0.9" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "pyyaml", marker = "extra == 'antares'", specifier = ">=6.0" },
     { name = "xarray", specifier = ">=2024.1" },
 ]

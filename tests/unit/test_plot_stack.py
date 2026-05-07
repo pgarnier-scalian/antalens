@@ -10,11 +10,14 @@ import pytest
 from antalens.data.dataset import Dataset
 from antalens.plots.stack import ProductionStack
 from antalens.theme.stack_templates import (
-    ECO2MIX,
     StackLayer,
     StackTemplate,
     get_template,
 )
+
+BASE_TEMPLATE = StackTemplate.from_dict({"solar": "#64748b", "wind": "#0ea5e9", "gas": "#f59e0b"})
+
+PARTIAL_TEMPLATE = StackTemplate.from_dict({"solar": "#64748b"})
 
 
 @pytest.fixture
@@ -24,7 +27,7 @@ def fuel_df() -> pl.DataFrame:
     rows = []
     for h in range(72):
         ts = start + timedelta(hours=h)
-        rows.append({"ts": ts, "fuel": "nuclear", "value": 50.0})
+        rows.append({"ts": ts, "fuel": "solar", "value": 50.0})
         rows.append({"ts": ts, "fuel": "wind", "value": 20.0 + (h % 5)})
         rows.append({"ts": ts, "fuel": "gas", "value": 30.0 - (h % 7)})
     return pl.DataFrame(rows)
@@ -34,11 +37,15 @@ def fuel_df() -> pl.DataFrame:
 
 
 def test_get_template_by_name() -> None:
-    assert get_template("eco2mix") is ECO2MIX
+    # Test dict-based creation produces generic template
+    t = get_template({"solar": "#64748b", "wind": "#0ea5e9", "gas": "#f59e0b"})
+    assert t.name == "custom"
+    assert len(t.layers) == 3
 
 
 def test_get_template_by_instance() -> None:
-    assert get_template(ECO2MIX) is ECO2MIX
+    t = get_template(BASE_TEMPLATE)
+    assert t is BASE_TEMPLATE
 
 
 def test_get_template_from_dict() -> None:
@@ -72,7 +79,9 @@ def test_template_categories_filter_by_side() -> None:
 def test_constructs_with_minimum_args(fuel_df: pl.DataFrame) -> None:
     ds = Dataset(fuel_df.lazy())
     plot = ProductionStack(ds, stack_by="fuel", y="value")
-    assert plot.template is ECO2MIX  # default
+    # Default is an empty dict template
+    assert plot.template.name == "custom"
+    assert len(plot.template.layers) == 0
 
 
 def test_rejects_missing_stack_by(fuel_df: pl.DataFrame) -> None:
@@ -102,49 +111,58 @@ def test_build_one_trace_per_template_category_present(
 ) -> None:
     ds = Dataset(fuel_df.lazy())
     fig = ProductionStack(ds, stack_by="fuel", y="value").build()
-    # Three fuels in data, all in eco2mix template → 3 traces.
+    # Three fuels in data with default template → 3 traces.
     trace_names = [t.name for t in fig.data]
-    assert set(trace_names) == {"nuclear", "wind", "gas"}
+    assert set(trace_names) == {"solar", "wind", "gas"}
 
 
 def test_build_respects_template_order(fuel_df: pl.DataFrame) -> None:
     """Traces are emitted in template order, not data order."""
     ds = Dataset(fuel_df.lazy())
-    fig = ProductionStack(ds, stack_by="fuel", y="value").build()
+    fig = ProductionStack(ds, stack_by="fuel", y="value", template=BASE_TEMPLATE).build()
     trace_names = [t.name for t in fig.data]
-    # eco2mix order: nuclear, hydro, wind, solar, ..., gas, ...
-    assert trace_names.index("nuclear") < trace_names.index("wind")
-    assert trace_names.index("wind") < trace_names.index("gas")
+    # Template order: solar, wind, gas (as defined in BASE_TEMPLATE)
+    assert trace_names == ["solar", "wind", "gas"]
 
 
 def test_unknown_categories_emit_warning() -> None:
+    """Warning is emitted when using a partial template."""
     df = pl.DataFrame(
         {
             "ts": [datetime(2025, 1, 1, h) for h in range(3)],
-            "fuel": ["nuclear", "fictional_fuel", "nuclear"],
+            "fuel": ["solar", "fictional_fuel", "solar"],
             "value": [10.0, 20.0, 30.0],
         }
     )
     ds = Dataset(df.lazy())
+    # Use partial template that only includes "solar"
     with pytest.warns(UserWarning, match="dropped 1 categories"):
-        ProductionStack(ds, stack_by="fuel", y="value").build()
+        ProductionStack(ds, stack_by="fuel", y="value", template=PARTIAL_TEMPLATE).build()
 
 
 def test_negative_layers_use_negative_stackgroup() -> None:
-    """Battery (negative side) should be in a different stackgroup."""
+    """Storage (negative side) should be in a different stackgroup."""
     df = pl.DataFrame(
         {
             "ts": [datetime(2025, 1, 1, h) for h in range(3)],
-            "fuel": ["nuclear", "battery", "nuclear"],
+            "fuel": ["solar", "storage", "solar"],
             "value": [50.0, 10.0, 50.0],
         }
     )
     ds = Dataset(df.lazy())
-    fig = ProductionStack(ds, stack_by="fuel", y="value").build()
-    nuclear_trace = next(t for t in fig.data if t.name == "nuclear")
-    battery_trace = next(t for t in fig.data if t.name == "battery")
-    assert nuclear_trace.stackgroup == "positive"
-    assert battery_trace.stackgroup == "negative"
+    # Use a template with negative side defined
+    neg_template = StackTemplate(
+        name="neg-test",
+        layers=(
+            StackLayer("solar", "#64748b", side="positive"),
+            StackLayer("storage", "#000000", side="negative"),
+        ),
+    )
+    fig = ProductionStack(ds, stack_by="fuel", y="value", template=neg_template).build()
+    solar_trace = next(t for t in fig.data if t.name == "solar")
+    storage_trace = next(t for t in fig.data if t.name == "storage")
+    assert solar_trace.stackgroup == "positive"
+    assert storage_trace.stackgroup == "negative"
 
 
 def test_load_overlay_adds_extra_trace(fuel_df: pl.DataFrame) -> None:
@@ -164,5 +182,6 @@ def test_accessor_returns_pane(fuel_df: pl.DataFrame) -> None:
     import panel as pn
 
     ds = Dataset(fuel_df.lazy())
-    pane = ds.plot.stack(stack_by="fuel", y="value")
+    # Use explicit template to avoid any template resolution issues
+    pane = ds.plot.stack(stack_by="fuel", y="value", template=BASE_TEMPLATE)
     assert isinstance(pane, pn.pane.Plotly)

@@ -1,0 +1,40 @@
+# base stack template — example catalog for AntaLens
+# Generic category-based stacking — useful when fuel-type details are unavailable
+# See docs/gems.md §4 for catalog schema reference
+#
+# Usage in Python:
+#   from antalens.catalogs import load_template
+#   base = load_template("base_stack.yml")
+
+name: base
+display_name: "Base stack"
+description: "Generic category-based stacking with dispatchable categories"
+
+layers:
+  - name: baseload
+    display: Baseload
+    color: "#264653"
+    aggregation: sum
+    order: 1
+    negative: false
+
+  - name: intermittent
+    display: Intermittent
+    color: "#06a77d"
+    aggregation: sum
+    order: 2
+    negative: false
+
+  - name: dispatchable
+    display: Dispatchable
+    color: "#e78a3e"
+    aggregation: sum
+    order: 3
+    negative: false
+
+  - name: peaker
+    display: Peaker
+    color: "#d95f41"
+    aggregation: sum
+    order: 4
+    negative: false

@@ -16,9 +16,40 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
+import polars as pl
+
 from antalens.plots._base import BasePlot
 from antalens.plots.bar import BarPlot
 from antalens.plots.stack import ProductionStack
 from antalens.plots.timeseries import TimeSeriesPlot
 
-__all__ = ["BarPlot", "BasePlot", "ProductionStack", "TimeSeriesPlot"]
+__all__ = [
+    "BarPlot",
+    "BasePlot",
+    "ProductionStack",
+    "TimeSeriesPlot",
+    "pipe",
+]
+
+
+def pipe(fn: Callable[[pl.LazyFrame], pl.LazyFrame]) -> Callable[[pl.LazyFrame], pl.LazyFrame]:
+    """Apply a transformation function to a LazyFrame.
+
+    This is a pipeline primitive for composing data transformations.
+    It's equivalent to ``fn(lf)`` but enables fluent chaining.
+
+    Args:
+        fn: A callable taking a LazyFrame and returning a transformed LazyFrame.
+
+    Returns:
+        The same function for chaining.
+
+    Example:
+        >>> from antalens.plots import pipe
+        >>> def filter_rows(lf):
+        ...     return lf.filter(pl.col("value") > 0)
+        >>> lf.pipe(filter_rows)  # doctest: +SKIP
+    """
+    return fn

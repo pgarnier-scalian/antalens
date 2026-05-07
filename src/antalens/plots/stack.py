@@ -16,7 +16,7 @@ Three features distinguish this from a generic stacked-area chart:
 
 Example::
 
-    ds.plot.stack(stack_by="fuel", y="output_mw", template="eco2mix",
+    ds.plot.stack(stack_by="fuel", y="output_mw",
                   load="load_mw")
 
     # Custom template
@@ -54,13 +54,13 @@ class ProductionStack(BasePlot):
         y: Numeric column whose values are stacked. Defaults to
             ``"value"`` to match LP solver output conventions.
         template: A :class:`StackTemplate`, a registered template name,
-            or a ``{category: color}`` dict. Defaults to ``"eco2mix"``.
+            or a ``{category: color}`` dict. Defaults to ``"base"``.
         load: Optional column name to overlay as a line on top of the
             stack. Common pattern: stack generation by fuel, overlay
             total demand.
         agg: How to aggregate multiple rows sharing the same
             ``(time, category)``. ``"sum"`` (default) for production
-            ("total nuclear" = sum across reactors). ``"mean"`` for
+            (e.g. sum across multiple units). ``"mean"`` for
             ensemble averages.
         title: Optional figure title.
 
@@ -77,7 +77,7 @@ class ProductionStack(BasePlot):
         *,
         stack_by: str,
         y: str = "value",
-        template: StackTemplate | dict[str, str] | str = "eco2mix",
+        template: StackTemplate | dict[str, str] | str | None = None,
         load: str | None = None,
         agg: StackAgg = "sum",
         title: str | None = None,
@@ -91,13 +91,14 @@ class ProductionStack(BasePlot):
             y: Numeric column whose values are stacked. Defaults to
                 ``"value"`` to match LP solver output conventions.
             template: A :class:`StackTemplate`, a registered template name,
-                or a ``{category: color}`` dict. Defaults to ``"eco2mix"``.
+                or a ``{category: color}`` dict. Defaults to an empty
+                palette that accepts any category.
             load: Optional column name to overlay as a line on top of the
                 stack. Common pattern: stack generation by fuel, overlay
                 total demand.
             agg: How to aggregate multiple rows sharing the same
                 ``(time, category)``. ``"sum"`` (default) for production
-                ("total nuclear" = sum across reactors). ``"mean"`` for
+                (e.g. sum across multiple units). ``"mean"`` for
                 ensemble averages.
             title: Optional figure title.
 
@@ -106,6 +107,8 @@ class ProductionStack(BasePlot):
                 column, or the template is unresolvable.
         """
         super().__init__(dataset)
+        if template is None:
+            template = {}
         assert_column_exists(dataset, stack_by, role="stack_by")
         assert_column_exists(dataset, y, role="y")
         if load is not None:
@@ -170,21 +173,33 @@ class ProductionStack(BasePlot):
         """
         present_categories = set(df[self.stack_by].unique().to_list())
         template_categories = set(self.template.categories())
-        unknown = present_categories - template_categories
-        if unknown:
-            warnings.warn(
-                f"ProductionStack: dropped {len(unknown)} categories not in "
-                f"template {self.template.name!r}: {sorted(unknown)!r}. "
-                f"Add them to the template or use a custom one.",
-                stacklevel=3,
-            )
 
+        # Empty template (default) means "accept all categories" — skip filtering
+        if template_categories:
+            unknown = present_categories - template_categories
+            if unknown:
+                warnings.warn(
+                    f"ProductionStack: dropped {len(unknown)} categories not in "
+                    f"template {self.template.name!r}: {sorted(unknown)!r}. "
+                    f"Add them to the template or use a custom one.",
+                    stacklevel=3,
+                )
+
+            long = (
+                df.filter(pl.col(self.stack_by).is_in(list(template_categories)))
+                .group_by([time_col, self.stack_by])
+                .agg(
+                    (pl.col(self.y).sum() if self.agg == "sum" else pl.col(self.y).mean()).alias(
+                        "__y"
+                    )
+                )
+            )
+            wide = long.pivot(on=self.stack_by, index=time_col, values="__y").sort(time_col)
+            return wide.fill_null(0.0)
+
+        # Empty template — no filtering, aggregate all present categories
         agg_expr = pl.col(self.y).sum() if self.agg == "sum" else pl.col(self.y).mean()
-        long = (
-            df.filter(pl.col(self.stack_by).is_in(list(template_categories)))
-            .group_by([time_col, self.stack_by])
-            .agg(agg_expr.alias("__y"))
-        )
+        long = df.group_by([time_col, self.stack_by]).agg(agg_expr.alias("__y"))
         wide = long.pivot(on=self.stack_by, index=time_col, values="__y").sort(time_col)
         return wide.fill_null(0.0)
 
@@ -192,7 +207,31 @@ class ProductionStack(BasePlot):
         """Add one stacked-area trace per template layer present in data."""
         x = pivoted[time_col].to_list()
         # Iterate template order — bottom-to-top stacking.
-        for layer in self.template.layers:
+        layers_to_render = self.template.layers if self.template.layers else []
+
+        # If template is empty (default), render all categories present in data
+        if not layers_to_render:
+            for category in pivoted.columns:
+                if category == time_col:
+                    continue
+                y_values = pivoted[category].to_list()
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y_values,
+                        name=category,
+                        mode="lines",
+                        line={"width": 0},
+                        fill="tonexty",
+                        fillcolor=_default_fill_color(category),
+                        stackgroup="positive",
+                        hovertemplate=f"%{{y:.1f}}<extra>{category}</extra>",
+                    )
+                )
+            return
+
+        # Render using template layers
+        for layer in layers_to_render:
             if layer.category not in pivoted.columns:
                 continue  # category absent from data, skip
             y_values = pivoted[layer.category].to_list()
@@ -239,6 +278,32 @@ class ProductionStack(BasePlot):
 
 
 # ─── helpers ────────────────────────────────────────────────────────────────
+
+
+def _default_fill_color(category: str) -> str:
+    """Generate a deterministic fill color from a category name.
+
+    Uses a simple hash of the category name to pick from a palette of
+    pastel colors. Returns rgba format for Plotly fill.
+    """
+    # Palette of pastel colors
+    palette = [
+        "#64748b",  # slate
+        "#0ea5e9",  # sky
+        "#f59e0b",  # amber
+        "#10b981",  # emerald
+        "#ef4444",  # red
+        "#8b5cf6",  # violet
+        "#ec4899",  # pink
+        "#f97316",  # orange
+        "#06b6d4",  # cyan
+        "#84cc16",  # lime
+    ]
+    idx = hash(category) % len(palette)
+    color = palette[idx]
+    h = color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},0.7)"
 
 
 def _hex_with_alpha(hex_color: str, alpha: float) -> str:

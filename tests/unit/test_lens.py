@@ -22,13 +22,13 @@ def test_lens_defaults() -> None:
     assert lens.area is None
     assert lens.dates is None
     assert lens.variable is None
-    assert lens.mc == "mean"
+    assert lens.scenario is None
 
 
 def test_lens_initial_values_via_kwargs() -> None:
-    lens = Lens(area="FR", mc="all")
+    lens = Lens(area="FR", scenario=0)
     assert lens.area == "FR"
-    assert lens.mc == "all"
+    assert lens.scenario == 0
 
 
 def test_lens_mutation_works() -> None:
@@ -65,7 +65,7 @@ def test_with_extras_creates_subclass() -> None:
     assert lens.seniority_level is None  # type: ignore[attr-defined]
     # Base parameters still present
     assert lens.area is None
-    assert lens.mc == "mean"
+    assert lens.scenario is None
 
 
 def test_with_extras_subclass_is_lens() -> None:
@@ -88,13 +88,13 @@ def test_with_extras_extra_param_is_reactive() -> None:
 
 
 def test_snapshot_returns_current_values() -> None:
-    lens = Lens(area="FR", mc="mean", variable="LOAD")
+    lens = Lens(area="FR", scenario=12, variable="LOAD")
     snap = lens.snapshot()
     assert snap == {
         "area": "FR",
         "dates": None,
         "variable": "LOAD",
-        "mc": "mean",
+        "scenario": 12,
     }
 
 

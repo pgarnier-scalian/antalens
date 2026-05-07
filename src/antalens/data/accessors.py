@@ -127,7 +127,7 @@ class PlotAccessor:
         *,
         stack_by: str,
         y: str = "value",
-        template: Any = "eco2mix",
+        template: Any = "base",
         load: str | None = None,
         agg: str = "sum",
         title: str | None = None,

@@ -33,7 +33,7 @@ Example::
     from antalens.lens import Lens
 
     ds = io.load_parquet("data.parquet")
-    lens = Lens(variable="nuclear")
+    lens = Lens(variable="fuel_type")
     reactive = ds.filter(fuel=lens.param.variable)
 
     dash = Dashboard("Energy 2030")

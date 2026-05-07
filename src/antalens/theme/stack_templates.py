@@ -2,21 +2,16 @@
 
 A :class:`StackTemplate` defines the visual identity of a stacked-area
 chart: which categories appear, in what order, with what color, and on
-which side of the zero line. Built-in templates cover common power-system
-conventions (eco2mix); users can register their own via
+which side of the zero line. Users can register their own via
 :func:`register_template`.
 
 The template is decoupled from any specific dataset — a template defines
-"what nuclear should look like in any chart"; the chart code matches
+"what a category should look like in any chart"; the chart code matches
 the template's categories against actual data column values.
 
 Example::
 
-    from antalens.theme import ECO2MIX, StackTemplate, StackLayer
-
-    # Inspect a built-in template
-    print(ECO2MIX.layers[0])
-    # StackLayer(category='nuclear', color='#6366f1', side='positive')
+    from antalens.theme import StackTemplate, StackLayer
 
     # Build a custom template
     my_template = StackTemplate(
@@ -31,8 +26,11 @@ Example::
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
 
 StackSide = Literal["positive", "negative"]
 """Which side of the zero line a layer sits on."""
@@ -44,11 +42,11 @@ class StackLayer:
 
     Attributes:
         category: The value to match against the ``stack_by`` column of
-            the dataset (e.g. ``"nuclear"``, ``"gas"``, ``"battery"``).
+            the dataset (e.g. ``"solar"``, ``"gas"``, ``"battery"``).
         color: The fill color, as a CSS hex string ``"#rrggbb"``.
         side: ``"positive"`` (default) for generation stacked above zero;
             ``"negative"`` for storage charging, exports, or other
-            consumption-type series rendered below zero.
+            consumption-type series rendered below the zero line.
     """
 
     category: str
@@ -62,15 +60,21 @@ class StackTemplate:
 
     Layers are bottom-to-top — ``layers[0]`` renders against the zero
     line, subsequent layers stack on top. This is what controls visual
-    ordering: nuclear at the bottom, peaking generation at the top.
+    ordering: base generation at the bottom, peaking generation at the top.
 
     Attributes:
         name: A human-readable identifier.
         layers: The ordered tuple of :class:`StackLayer` instances.
+        display_name: Optional human-readable display name for UI contexts.
+        description: Optional free-text description of the template's intent.
+        _yaml_path: Optional path to the source YAML file, if loaded from YAML.
     """
 
     name: str
     layers: tuple[StackLayer, ...]
+    display_name: str | None = None
+    description: str | None = None
+    _yaml_path: Path | None = field(default=None, compare=False, repr=False)
 
     def color_of(self, category: str) -> str | None:
         """Return the color for a category, or ``None`` if not in template."""
@@ -98,57 +102,76 @@ class StackTemplate:
         layers = tuple(StackLayer(cat, color) for cat, color in mapping.items())
         return cls(name=name, layers=layers)
 
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> StackTemplate:
+        """Load a template from a YAML file.
 
-# ─── built-in templates ────────────────────────────────────────────────────
+        Args:
+            path: Path to a YAML file containing a stack template.
+
+        Returns:
+            A :class:`StackTemplate` instance with ``_yaml_path`` set.
+
+        Raises:
+            FileNotFoundError: If the YAML file doesn't exist.
+            yaml.YAMLError: If the file is malformed.
+
+        Examples:
+            >>> template = StackTemplate.from_yaml("catalogs/examples/gems.yml")
+            >>> template.name
+            'gems'
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"stack template not found: {path}")
+
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        layers = tuple(
+            StackLayer(
+                category=layer["name"],
+                color=layer["color"],
+                side=layer.get("side", "positive"),
+            )
+            for layer in data["layers"]
+        )
+
+        return cls(
+            name=data["name"],
+            layers=layers,
+            display_name=data.get("display_name"),
+            description=data.get("description"),
+            _yaml_path=path,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export the template to a dictionary suitable for YAML serialization.
+
+        Returns:
+            A dict mapping category names to colors, suitable for passing to
+            :meth:`from_dict`.
+        """
+        return {layer.category: layer.color for layer in self.layers}
 
 
-ECO2MIX = StackTemplate(
-    name="eco2mix",
-    layers=(
-        StackLayer("nuclear", "#6366f1"),
-        StackLayer("hydro", "#38bdf8"),
-        StackLayer("wind", "#34d399"),
-        StackLayer("solar", "#fbbf24"),
-        StackLayer("bioenergy", "#84cc16"),
-        StackLayer("gas", "#f97316"),
-        StackLayer("coal", "#78716c"),
-        StackLayer("oil", "#525252"),
-        StackLayer("imports", "#a855f7"),
-        StackLayer("battery", "#fb7185", side="negative"),
-        StackLayer("pumped_hydro", "#0ea5e9", side="negative"),
-        StackLayer("exports", "#94a3b8", side="negative"),
-    ),
-)
-"""French TSO standard production-stack ordering and colors.
+# ─── deprecated built-in templates ───────────────────────────────────────────
 
-Suitable for ANTARES outputs and any dataset using the canonical
-fuel-type names: ``nuclear``, ``hydro``, ``wind``, ``solar``, etc.
+
+"""DEPRECATED module constants.
+
+These built-in constants are deprecated and will be removed in a future
+release. Load from YAML instead::
+
+    from antalens.theme import StackTemplate
+    tmpl = StackTemplate.from_yaml("catalogs/examples/gems.yml")
 """
 
 
-BASE = StackTemplate(
-    name="base",
-    layers=(
-        StackLayer("baseload", "#6366f1"),
-        StackLayer("intermittent", "#34d399"),
-        StackLayer("dispatchable", "#f97316"),
-        StackLayer("peaker", "#ef4444"),
-    ),
-)
-"""Generic four-tier template for non-fuel-specific data.
-
-Suitable for aggregated datasets where unit-level detail is collapsed
-into broad categories.
-"""
+# ─── registry ────────────────────────────────────────────────────────────────
 
 
-# ─── registry ──────────────────────────────────────────────────────────────
-
-
-_REGISTRY: dict[str, StackTemplate] = {
-    "eco2mix": ECO2MIX,
-    "base": BASE,
-}
+_REGISTRY: dict[str, StackTemplate] = {}
 
 
 def register_template(template: StackTemplate) -> None:
@@ -170,7 +193,7 @@ def get_template(name_or_obj: str | StackTemplate | dict[str, str]) -> StackTemp
     """Resolve a template by name, instance, or dict.
 
     Args:
-        name_or_obj: A registered template name (e.g. ``"eco2mix"``),
+        name_or_obj: A registered template name,
             a :class:`StackTemplate` instance (returned as-is), or a
             ``{category: color}`` dict (auto-wrapped via
             :meth:`StackTemplate.from_dict`).

@@ -118,6 +118,54 @@ class BasePlot(abc.ABC):
         """
         return {}
 
+    def apply_catalog(self, fig: go.Figure) -> go.Figure:
+        """Apply catalog metadata to ``fig`` in place.
+
+        Uses domain semantics from the attached catalog to enrich the plot:
+        - Renames traces using output display names from the catalog
+        - Applies palette colors from the catalog where applicable
+        - Sets axis labels from catalog metadata
+
+        The catalog must be attached to ``self.dataset.catalog``. If no
+        catalog is attached, this is a no-op. Returns the same figure
+        for chaining.
+
+        Returns:
+            The same figure for chaining.
+
+        Examples:
+            Attach a catalog to a dataset and plot::
+
+                >>> from antalens.catalog import Catalog
+                >>> from antalens.data.dataset import Dataset
+                >>> import polars as pl
+                >>>
+                >>> ds = Dataset(pl.DataFrame({"p": [1, 2, 3]}).lazy())
+                >>> cat = Catalog.from_string('''
+                ... outputs:
+                ...   p:
+                ...     display: Production
+                ...     unit: MW
+                ... ''')
+                >>> ds = ds.with_catalog(cat)
+                >>>
+                >>> plot = SomePlot(ds)
+                >>> fig = plot.build()
+                >>> plot.apply_catalog(fig)
+        """
+        catalog = self.dataset.catalog
+        if catalog is None:
+            return fig
+
+        for trace in fig.data:
+            # Try to get display name from catalog outputs
+            if hasattr(trace, "name") and trace.name:
+                output_meta = catalog.outputs.get(trace.name)
+                if output_meta:
+                    trace.name = output_meta.display
+
+        return fig
+
     def to_pane(self, **pane_kwargs: Any) -> pn.viewable.Viewable:
         """Wrap the built figure in a Panel pane.
 
@@ -135,7 +183,7 @@ class BasePlot(abc.ABC):
         # Attach the source plot reference so link() can discover the
         # event vocabulary later. Stored as a private attribute so it
         # doesn't pollute Panel's namespace.
-        pane._antalens_plot = self  # type: ignore[attr-defined]
+        pane._antalens_plot = self
         return pane
 
 

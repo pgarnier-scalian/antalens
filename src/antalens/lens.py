@@ -2,7 +2,7 @@
 
 A :class:`Lens` is the single source of truth for "what is the dashboard
 currently showing?". It carries the user's selections (area, date range,
-variable, MC year) as :mod:`param` parameters, which means every change
+variable, scenario) as :mod:`param` parameters, which means every change
 fires a watch event that downstream consumers can listen to.
 
 The base :class:`Lens` covers the four dimensions most common in time-series
@@ -22,6 +22,7 @@ re-render automatically when the lens mutates.
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime
 from typing import Any
 
@@ -42,7 +43,7 @@ class Lens(param.Parameterized):  # type: ignore[misc]
     Examples:
         Basic usage::
 
-            lens = Lens(area="FR", mc="mean")
+            lens = Lens(area="FR", scenario="mean")
             lens.area = "DE"  # fires watch events on all bound consumers
 
         Subscribing to changes::
@@ -53,7 +54,7 @@ class Lens(param.Parameterized):  # type: ignore[misc]
     """
 
     area = param.String(
-        default=None,  # type: ignore[arg-type]
+        default=None,
         allow_None=True,
         doc="Selected area or region identifier (e.g. 'FR', 'DE').",
     )
@@ -65,18 +66,67 @@ class Lens(param.Parameterized):  # type: ignore[misc]
     )
 
     variable = param.String(
-        default=None,  # type: ignore[arg-type]
+        default=None,
         allow_None=True,
         doc="Selected variable / measurement to display (e.g. 'LOAD').",
     )
 
-    mc = param.String(
-        default="mean",
-        doc=(
-            "Monte Carlo year selection. 'mean' for synthetic average, "
-            "'all' for full ensemble, or a specific year as a string."
-        ),
+    scenario = param.Integer(
+        default=None,
+        allow_None=True,
+        doc="Selected Monte Carlo scenario index, 0-based.",
     )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize Lens with deprecated `mc` alias support.
+
+        Args:
+            *args: Positional arguments (unused).
+            **kwargs: Initial parameter values. If ``mc`` is provided,
+                it is converted to ``scenario`` with a deprecation warning.
+        """
+        # Handle deprecated mc -> scenario migration
+        mc = kwargs.pop("mc", None)
+        if mc is not None:
+            warnings.warn(
+                "Lens.mc is deprecated; use Lens.scenario instead. "
+                "Pass scenario=<value> instead of mc=<value>.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            kwargs["scenario"] = mc
+        super().__init__(*args, **kwargs)
+
+    @property
+    def mc(self) -> str:
+        """Deprecated: Use scenario instead.
+
+        Returns:
+            The current value of the scenario parameter.
+
+        Raises:
+            DeprecationWarning: This property is deprecated.
+        """
+        warnings.warn(
+            "Lens.mc is deprecated; use Lens.scenario instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return object.__getattribute__(self, "scenario")
+
+    @mc.setter
+    def mc(self, value: str) -> None:
+        """Deprecated: Use scenario instead.
+
+        Args:
+            value: The scenario value to set.
+        """
+        warnings.warn(
+            "Lens.mc is deprecated; use Lens.scenario instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.scenario = value
 
     @classmethod
     def with_extras(cls, **extra_params: param.Parameter) -> type[Lens]:
@@ -121,17 +171,17 @@ class Lens(param.Parameterized):  # type: ignore[misc]
             A dict mapping parameter names to their current values.
 
         Examples:
-            >>> lens = Lens(area="FR", mc="mean")
+            >>> lens = Lens(area="FR", scenario="mean")
             >>> snap = lens.snapshot()
             >>> snap["area"]
             'FR'
-            >>> snap["mc"]
+            >>> snap["scenario"]
             'mean'
         """
         return {
             p: getattr(self, p)
             for p in self.param
-            if p != "name"  # param adds 'name' automatically; not user data
+            if p not in ("name", "mc")  # exclude param internal 'name' and deprecated 'mc' alias
         }
 
 
@@ -249,7 +299,7 @@ def normalize_lens_date_range(
     if date_range is None:
         return None
     if isinstance(date_range, tuple) and len(date_range) == 2:
-        return date_range  # type: ignore[return-value]
+        return date_range
     raise TypeError(
         f"Lens.dates must be None or a (start, end) tuple of datetimes, "
         f"got {type(date_range).__name__}: {date_range!r}"

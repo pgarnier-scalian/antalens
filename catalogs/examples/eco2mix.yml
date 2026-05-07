@@ -1,0 +1,96 @@
+# eco2mix stack template — example catalog for AntaLens
+# Domain-specific fuel orderings and colors — move to your own catalog for production
+# See docs/gems.md §4 for catalog schema reference
+#
+# Usage in Python:
+#   from antalens.catalogs import load_template
+#   eco2mix = load_template("eco2mix.yml")
+
+name: eco2mix
+display_name: "Eco2mix stack"
+description: "Standard European eco2mix stacking order with fuel-type colors"
+
+layers:
+  - name: nuclear
+    display: Nuclear
+    color: "#ffd23f"
+    aggregation: sum
+    order: 1
+    negative: false
+
+  - name: hydro
+    display: Hydro
+    color: "#0099b7"
+    aggregation: sum
+    order: 2
+    negative: false
+
+  - name: wind
+    display: Wind
+    color: "#06a77d"
+    aggregation: sum
+    order: 3
+    negative: false
+
+  - name: solar
+    display: Solar
+    color: "#f4a261"
+    aggregation: sum
+    order: 4
+    negative: false
+
+  - name: bioenergy
+    display: Bioenergy
+    color: "#d95f41"
+    aggregation: sum
+    order: 5
+    negative: false
+
+  - name: gas
+    display: Gas
+    color: "#e78a3e"
+    aggregation: sum
+    order: 6
+    negative: false
+
+  - name: coal
+    display: Coal
+    color: "#7c2970"
+    aggregation: sum
+    order: 7
+    negative: false
+
+  - name: oil
+    display: Oil
+    color: "#4a776c"
+    aggregation: sum
+    order: 8
+    negative: false
+
+  - name: imports
+    display: Imports
+    color: "#9966cc"
+    aggregation: sum
+    order: 9
+    negative: false
+
+  - name: battery
+    display: Battery
+    color: "#ff6699"
+    aggregation: sum
+    order: 10
+    negative: false
+
+  - name: pumped_hydro
+    display: Pumped Hydro
+    color: "#33cc33"
+    aggregation: sum
+    order: 11
+    negative: false
+
+  - name: exports
+    display: Exports
+    color: "#663399"
+    aggregation: sum
+    order: 12
+    negative: true

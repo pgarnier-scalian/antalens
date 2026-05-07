@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     import pandas as pd
     import param
 
+    from antalens.catalog import Catalog
     from antalens.data.accessors import PlotAccessor
 
 # Aggregation function names accepted by ``resample()``.
@@ -80,7 +81,7 @@ class Dataset:
         name: The dataset's display name.
     """
 
-    __slots__ = ("_lf", "_reactive_bindings", "name", "schema")
+    __slots__ = ("_catalog", "_lf", "_reactive_bindings", "name", "schema")
 
     def __init__(
         self,
@@ -88,6 +89,7 @@ class Dataset:
         *,
         schema: Schema | None = None,
         name: str | None = None,
+        catalog: Catalog | None = None,
         _reactive_bindings: list[ReactiveBinding] | None = None,
     ) -> None:
         """Construct a Dataset wrapping ``lf``.
@@ -99,6 +101,9 @@ class Dataset:
                 method already knows the schema and wants to skip re-inference.
             name: Optional human-readable name, surfaced in plot titles and
                 legends when comparing multiple datasets.
+            catalog: Optional :class:`~antalens.catalog.Catalog` for domain
+                metadata (component patterns, output display names, palettes).
+                Defaults to ``None``.
             _reactive_bindings: Internal. List of pending reactive filter
                 bindings to carry forward. Defaults to an empty list when
                 ``None``. Not part of the public API.
@@ -106,6 +111,7 @@ class Dataset:
         self._lf = lf
         self.schema = schema if schema is not None else infer_schema(lf)
         self.name = name
+        self._catalog = catalog
         self._reactive_bindings = list(_reactive_bindings) if _reactive_bindings else []
 
     # ── construction helpers ────────────────────────────────────────────────
@@ -116,6 +122,7 @@ class Dataset:
         *,
         schema: Schema | None = None,
         extra_bindings: list[ReactiveBinding] | None = None,
+        catalog: Catalog | None = None,
     ) -> Dataset:
         """Return a new Dataset wrapping ``lf``.
 
@@ -139,6 +146,9 @@ class Dataset:
             extra_bindings: Optional list of reactive bindings introduced
                 by the current chain step. Appended after any bindings
                 already present on ``self``.
+            catalog: Optional Catalog override. If provided, replaces the
+                current catalog; otherwise ``self._catalog`` is propagated.
+                Defaults to ``None``.
 
         Returns:
             A new :class:`Dataset` (never a subclass instance).
@@ -150,6 +160,7 @@ class Dataset:
             lf,
             schema=schema or self.schema,
             name=self.name,
+            catalog=catalog if catalog is not None else self._catalog,
             _reactive_bindings=merged_bindings,
         )
 
@@ -507,6 +518,48 @@ class Dataset:
 
         return PlotAccessor(self)
 
+    @property
+    def catalog(self) -> Catalog | None:
+        """The :class:`~antalens.catalog.Catalog` attached to this dataset.
+
+        Returns ``None`` if no catalog was provided during construction.
+        Use :meth:`with_catalog` to attach a catalog to an existing
+        dataset.
+
+        Example::
+
+            from antalens import Catalog, load_parquet
+
+            cat = Catalog.from_yaml("catalogs/examples/gems.yml")
+            ds = load_parquet("output.parquet").with_catalog(cat)
+            ds.catalog.outputs["p"].display
+            'Production'
+        """
+        return self._catalog
+
+    def with_catalog(self, catalog: Catalog) -> Self:
+        """Attach a catalog to this dataset.
+
+        Returns a new :class:`Dataset` with the catalog bound. Chain
+        methods propagate the catalog forward automatically.
+
+        Args:
+            catalog: The :class:`~antalens.catalog.Catalog` to attach.
+
+        Returns:
+            A new :class:`Dataset` with ``catalog`` set.
+
+        Example::
+
+            from antalens import Catalog, load_parquet
+
+            cat = Catalog.from_yaml("catalogs/examples/gems.yml")
+            ds = load_parquet("output.parquet").with_catalog(cat)
+            ds.catalog.outputs["p"].display
+            'Production'
+        """
+        return self._with(self._lf, catalog=catalog)  # type: ignore
+
     # ── internal helpers ───────────────────────────────────────────────────
 
     def _apply_membership_filter(
@@ -723,6 +776,7 @@ class ComparedDataset(Dataset):
         *,
         schema: Schema | None = None,
         extra_bindings: list[ReactiveBinding] | None = None,
+        catalog: Catalog | None = None,
     ) -> Dataset:
         """Return a plain Dataset; comparison metadata doesn't propagate.
 
@@ -739,6 +793,8 @@ class ComparedDataset(Dataset):
             extra_bindings: Optional list of reactive bindings introduced
                 by the current chain step. Appended after any bindings
                 already present on ``self``.
+            catalog: Unused in ComparedDataset; passed through for
+                compatibility with base class signature.
 
         Returns:
             A plain :class:`Dataset` (never a :class:`ComparedDataset`).
