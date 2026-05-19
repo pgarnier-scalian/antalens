@@ -1,0 +1,55 @@
+# Minimal GEMS catalog covering only the most common component types.
+# Use as a starting point for your own catalogs — copy and extend.
+
+component_patterns:
+  - pattern: '^generator_(?P<area>[^_]+)_(?P<unit>\d+)_(?P<fuel>.+)$'
+    kind: generator
+    display: '{fuel} unit {unit} ({area})'
+
+  - pattern: '^link_(?P<from_area>[^_]+)_(?P<to_area>[^_]+)$'
+    kind: link
+    display: '{from_area} → {to_area}'
+
+  - pattern: '^load_(?P<area>[^_]+)$'
+    kind: load
+    display: 'Load {area}'
+
+  - pattern: '^storage_(?P<area>[^_]+)_(?P<unit>\d+)$'
+    kind: storage
+    display: 'Storage unit {unit} ({area})'
+
+outputs:
+  p:
+    display: 'Power'
+    unit: 'MW'
+    default_agg: 'sum'
+  e:
+    display: 'Energy'
+    unit: 'MWh'
+    default_agg: 'sum'
+  p_nom:
+    display: 'Installed capacity'
+    unit: 'MW'
+    default_agg: 'mean'
+  state_of_charge:
+    display: 'State of charge'
+    unit: 'MWh'
+    default_agg: 'mean'
+
+# Note: singular 'palette' to match Catalog._from_dict
+palette:
+  default:
+    nuclear: '#6366f1'
+    gas: '#f97316'
+    wind: '#34d399'
+    solar: '#fbbf24'
+    coal: '#78716c'
+    hydro: '#38bdf8'
+    storage: '#fb7185'
+    load: '#94a3b8'
+
+stack_templates:
+  default:
+    order: [nuclear, hydro, wind, solar, gas, coal]
+    negative: [storage]
+    palette: default

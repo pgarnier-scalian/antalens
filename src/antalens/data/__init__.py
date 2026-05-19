@@ -11,13 +11,12 @@ This package contains the data abstractions that power AntaLens:
 from __future__ import annotations
 
 from antalens.data.dataset import Dataset
-from antalens.data.simulation_table import SimulationTable, SimulationTableSchema
+from antalens.data.simulation_table import SimulationTable
 from antalens.data.views import Views, ViewsSchema
 
 __all__ = [
     "Dataset",
     "SimulationTable",
-    "SimulationTableSchema",
     "Views",
     "ViewsSchema",
     "schema",

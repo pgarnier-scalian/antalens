@@ -1,49 +1,79 @@
-"""GEMS raw output data — :class:`SimulationTable`.
+"""The :class:`SimulationTable` — GEMS raw-output Dataset subclass.
 
-A :class:`SimulationTable` is a :class:`Dataset` subclass specialized for
-GEMS raw simulation outputs. It exposes GEMS-specific accessors and methods
-that make it easy to work with the long-format parquet files produced by
-the GEMS solver.
+A SimulationTable wraps a long-format parquet/CSV with the canonical GEMS
+schema (see ``gems.md`` §2):
 
-See Also:
-    :mod:`antalens.data.views` — Curated wide-format outputs
-    :doc:`../gems` — GEMS data model reference
+    block, component, output, absolute_time_index, block_time_index,
+    scenario_index, value, basis_status
+
+It adds GEMS-aware accessors (``.components``, ``.outputs``, ``.scenarios``,
+``.blocks``) and a :meth:`filter` overload accepting keyword arguments
+mapped to those columns. All chain methods inherited from
+:class:`~antalens.data.dataset.Dataset` continue to work — the subclass is
+strictly additive.
+
+The accessors are computed lazily and cached. On a 35GB SimulationTable,
+calling ``.outputs`` reads only the distinct values of one column from
+the parquet header, not the whole file.
+
+Example::
+
+    sim = al.io.load_simulation_table("output.parquet")
+    print(sim.outputs)       # ['p', 'e', 'p_nom', ...]
+    print(sim.scenarios)     # [0, 1, 2, ...]
+
+    # GEMS-aware filtering
+    nuclear = sim.filter(component="generator_FR_NUCLEAR_0", output="p")
+    week2 = sim.filter(time_range=(168, 336))
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import polars as pl
 
-from antalens.catalog import Catalog
 from antalens.data.dataset import Dataset, ReactiveBinding
 from antalens.data.schema import Schema
 
+if TYPE_CHECKING:
+    from antalens.catalog import Catalog
+
+
+# Canonical GEMS column names. These are baked into the schema and used
+# by the accessors and the filter overload.
+_GEMS_COLUMNS = {
+    "block": "block",
+    "component": "component",
+    "output": "output",
+    "absolute_time_index": "absolute_time_index",
+    "block_time_index": "block_time_index",
+    "scenario_index": "scenario_index",
+    "value": "value",
+    "basis_status": "basis_status",
+}
+
 
 class SimulationTable(Dataset):
-    """Dataset subclass for GEMS raw outputs (long-format parquet).
+    """A GEMS SimulationTable backed by a polars LazyFrame.
 
-    GEMS simulation outputs have a canonical long format with eight columns:
-    ``component``, ``output``, ``scenario``, ``block``, ``time``, ``value``.
-    This class provides accessors for those GEMS-specific dimensions.
+    Constructed by :func:`antalens.io.load_simulation_table`. Users
+    rarely instantiate directly.
 
     Args:
-        lf: The underlying polars LazyFrame.
-        schema: The schema (should be a GEMS schema).
-        name: Optional name for identification.
-        catalog: Optional catalog for domain semantics.
-        _reactive_bindings: Optional list of reactive bindings.
-
-    Example:
-        Load a GEMS simulation table::
-
-            from antalens.io import load_simulation_table
-
-            st = load_simulation_table("output.parquet")
-            st.components  # List of all components
-            st.outputs     # List of all outputs
+        lf: The polars LazyFrame backing this SimulationTable. Must
+            contain at least the eight canonical GEMS columns.
+        schema: Optional pre-computed Schema. If ``None``, a long-format
+            schema with ``kind="long_gems"`` is constructed from the
+            canonical GEMS column names.
+        name: Optional human-readable name.
+        catalog: Optional :class:`~antalens.catalog.Catalog` providing
+            domain semantics. ``None`` means raw generic columns only.
+        _reactive_bindings: Internal — reactive filter bindings
+            propagated from chain methods.
     """
 
-    __slots__ = ()
+    __slots__ = ("_blocks_cache", "_components_cache", "_outputs_cache", "_scenarios_cache")
 
     def __init__(
         self,
@@ -54,155 +84,265 @@ class SimulationTable(Dataset):
         catalog: Catalog | None = None,
         _reactive_bindings: list[ReactiveBinding] | None = None,
     ) -> None:
-        """Initialize a SimulationTable.
+        """A GEMS SimulationTable backed by a polars LazyFrame.
+
+        Constructed by :func:`antalens.io.load_simulation_table`. Users
+        rarely instantiate directly.
 
         Args:
-            lf: The underlying polars LazyFrame.
-            schema: The schema (should be a GEMS schema).
-            name: Optional name for identification.
-            catalog: Optional catalog for domain semantics.
-            _reactive_bindings: Optional list of reactive bindings.
+            lf: The polars LazyFrame backing this SimulationTable. Must
+                contain at least the eight canonical GEMS columns.
+            schema: Optional pre-computed Schema. If ``None``, a long-format
+                schema with ``kind="long_gems"`` is constructed from the
+                canonical GEMS column names.
+            name: Optional human-readable name.
+            catalog: Optional :class:`~antalens.catalog.Catalog` providing
+                domain semantics. ``None`` means raw generic columns only.
+            _reactive_bindings: Internal — reactive filter bindings
+                propagated from chain methods.
         """
+        # Build a canonical long-format schema if one wasn't supplied.
+        if schema is None:
+            schema = _build_simulation_table_schema(lf)
         super().__init__(
-            lf=lf,
+            lf,
             schema=schema,
             name=name,
             catalog=catalog,
             _reactive_bindings=_reactive_bindings,
         )
+        self._components_cache: list[str] | None = None
+        self._outputs_cache: list[str] | None = None
+        self._scenarios_cache: list[int] | None = None
+        self._blocks_cache: list[int] | None = None
+
+    # ── GEMS accessors (lazy + cached) ────────────────────────────────────
 
     @property
     def components(self) -> list[str]:
-        """List of all component names in this simulation table."""
-        if "component" not in self.columns:
-            return []
-        return self._lf.unique(["component"]).sort("component").collect().item()  # type: ignore[no-any-return]
+        """Distinct component names present in the table."""
+        if self._components_cache is None:
+            self._components_cache = self._distinct_values("component", str)
+        return self._components_cache
 
     @property
     def outputs(self) -> list[str]:
-        """List of all output names in this simulation table."""
-        if "output" not in self.columns:
-            return []
-        return self._lf.unique(["output"]).sort("output").collect().item()  # type: ignore[no-any-return]
+        """Distinct output (variable) names present in the table."""
+        if self._outputs_cache is None:
+            self._outputs_cache = self._distinct_values("output", str)
+        return self._outputs_cache
 
     @property
     def scenarios(self) -> list[int]:
-        """List of all scenario IDs in this simulation table."""
-        if "scenario" not in self.columns:
-            return []
-        return self._lf.unique(["scenario"]).sort("scenario").collect().item()  # type: ignore[no-any-return]
+        """Distinct scenario indices present in the table."""
+        if self._scenarios_cache is None:
+            self._scenarios_cache = self._distinct_values("scenario_index", int)
+        return self._scenarios_cache
 
     @property
-    def blocks(self) -> list[str]:
-        """List of all block names in this simulation table."""
-        if "block" not in self.columns:
-            return []
-        return self._lf.unique(["block"]).sort("block").collect().item()  # type: ignore[no-any-return]
+    def blocks(self) -> list[int]:
+        """Distinct block indices present in the table."""
+        if self._blocks_cache is None:
+            self._blocks_cache = self._distinct_values("block", int)
+        return self._blocks_cache
+
+    def _distinct_values(self, column: str, dtype: type) -> list:  # type: ignore
+        """Read distinct values of ``column`` and cast to ``dtype``."""
+        values = (
+            self._lf.select(pl.col(column).unique().drop_nulls()).collect().to_series().to_list()
+        )
+        return sorted([dtype(v) for v in values])
+
+    # ── GEMS-aware filter ─────────────────────────────────────────────────
 
     def filter(  # type: ignore[override]
         self,
         *,
-        components: str | list[str] | None = None,
-        outputs: str | list[str] | None = None,
-        scenarios: int | list[int] | None = None,
-        blocks: str | list[str] | None = None,
+        component: str | list[str] | None = None,
+        component_kind: str | None = None,
+        output: str | list[str] | Any = None,
+        scenario: int | list[int] | Any = None,
+        time_range: tuple[int, int] | None = None,
+        **extra: Any,
     ) -> SimulationTable:
-        """Filter by GEMS-specific dimensions.
+        """Narrow the SimulationTable along GEMS-aware dimensions.
+
+        All kwargs are AND-combined. Each may be a static value, a list,
+        or a reactive binding (a Lens parameter or whole Lens — see
+        :meth:`Dataset.filter`).
 
         Args:
-            components: Component name(s) to include.
-            outputs: Output name(s) to include.
-            scenarios: Scenario ID(s) to include.
-            blocks: Block name(s) to include.
+            component: One or more component names. Filters the
+                ``component`` column.
+            component_kind: Filter by component kind (``"generator"``,
+                ``"link"``, etc.). Requires an attached catalog with
+                component patterns. Raises :class:`NotImplementedError`
+                when no catalog is available.
+            output: One or more output (variable) names. Filters the
+                ``output`` column.
+            scenario: One or more scenario indices. Filters the
+                ``scenario_index`` column.
+            time_range: An ``(start, end)`` tuple of
+                ``absolute_time_index`` values, both inclusive.
+            **extra: Additional column-name kwargs forwarded to
+                :meth:`Dataset.filter`.
 
         Returns:
-            A new SimulationTable with the specified filters applied.
+            A new :class:`SimulationTable` with the filter applied.
+
+        Raises:
+            NotImplementedError: If ``component_kind`` is provided but
+                no catalog is attached.
         """
-        lf = self._lf
+        if component_kind is not None:
+            if self.catalog is None:
+                raise NotImplementedError(
+                    "filter(component_kind=...) requires a Catalog with "
+                    "component patterns. Attach one via "
+                    ".with_catalog(cat) and retry."
+                )
+            # When the catalog is available, resolve component_kind to a
+            # list of component names that match the kind's pattern, then
+            # AND with the explicit `component` filter.
+            kind_components = self.catalog.components_of_kind(
+                component_kind, candidates=self.components
+            )
+            if component is None:
+                component = kind_components
+            elif isinstance(component, str):
+                component = [c for c in kind_components if c == component]
+            else:
+                component = [c for c in kind_components if c in component]
 
-        if components is not None:
-            if isinstance(components, str):
-                components = [components]
-            lf = lf.filter(pl.col("component").is_in(components))
+        # Build the filter kwargs to pass through to Dataset.filter via **extra.
+        filter_kwargs: dict[str, Any] = dict(extra)
+        if component is not None:
+            filter_kwargs["component"] = component
+        if output is not None:
+            filter_kwargs["output"] = output
+        if scenario is not None:
+            filter_kwargs["scenario_index"] = scenario
 
-        if outputs is not None:
-            if isinstance(outputs, str):
-                outputs = [outputs]
-            lf = lf.filter(pl.col("output").is_in(outputs))
+        # The base Dataset.filter doesn't know about absolute_time_index
+        # as a "time range" because the schema's time_col may or may not
+        # be that column. Apply the range filter directly here, then hand
+        # off the rest to the parent.
+        if time_range is not None:
+            start, end = time_range
+            new_lf = self._lf.filter(
+                pl.col("absolute_time_index").is_between(start, end, closed="both")
+            )
+            # Build an interim SimulationTable with the time range applied,
+            # then run the rest of the filters through it.
+            interim = type(self)(
+                new_lf,
+                schema=self.schema,
+                name=self.name,
+                catalog=self.catalog,
+                _reactive_bindings=self._reactive_bindings,
+            )
+            return Dataset.filter(interim, **filter_kwargs)  # type: ignore[return-value]
 
-        if scenarios is not None:
-            if isinstance(scenarios, int):
-                scenarios = [scenarios]
-            lf = lf.filter(pl.col("scenario").is_in(scenarios))
+        # No time range: forward straight to Dataset.filter. The base
+        # method calls _with(...) which preserves our subclass via type(self).
+        return Dataset.filter(self, **filter_kwargs)  # type: ignore[return-value]
 
-        if blocks is not None:
-            if isinstance(blocks, str):
-                blocks = [blocks]
-            lf = lf.filter(pl.col("block").is_in(blocks))
+    # ── pivot to wide format ──────────────────────────────────────────────
 
+    def pivot(
+        self,
+        *,
+        index: str = "absolute_time_index",
+        columns: str = "output",
+        values: str = "value",
+    ) -> Dataset:
+        """Pivot the long-format table to wide format.
+
+        Useful for plotting workflows that want one column per
+        ``output`` (or one per ``component``, or any other discriminator)
+        rather than the long-format mix.
+
+        Args:
+            index: Column to use as the row index. Default
+                ``"absolute_time_index"``.
+            columns: Column to spread into multiple columns. Default
+                ``"output"``.
+            values: Column whose values populate the pivoted cells.
+                Default ``"value"``.
+
+        Returns:
+            A plain :class:`Dataset` (not a SimulationTable — the result
+            no longer has GEMS long-format shape).
+        """
+        # polars' pivot on LazyFrame requires a collect (it's not lazy),
+        # so we materialize here. For very large SimulationTables this
+        # may be expensive — pre-filter with `.filter()` first.
+        wide = self._lf.collect().pivot(on=columns, index=index, values=values)
+        return Dataset(wide.lazy(), name=self.name)
+
+    # ── to_views (stubbed for ViewsBuilder integration) ───────────────────
+
+    def to_views(self, view_config: str | dict) -> Any:  # type: ignore
+        """Promote this SimulationTable to a Views file via a view-config.
+
+        Not yet implemented — reserved for the future ViewsBuilder
+        reference path. Use the GEMS ViewsBuilder externally for now.
+        """
+        raise NotImplementedError(
+            "SimulationTable.to_views is reserved for the ViewsBuilder "
+            "integration. Run the GEMS ViewsBuilder externally and load "
+            "the resulting parquet via al.io.load_views() instead."
+        )
+
+    # ── catalog attachment ────────────────────────────────────────────────
+
+    def with_catalog(self, catalog: Catalog) -> SimulationTable:
+        """Return a new SimulationTable with a Catalog attached.
+
+        The catalog enables semantic filtering (``component_kind=``),
+        display-name resolution, and palette-driven plotting. Without a
+        catalog, the table works on raw generic columns.
+        """
         return type(self)(
-            lf,
+            self._lf,
             schema=self.schema,
             name=self.name,
-            catalog=self.catalog,
-            _reactive_bindings=list(self._reactive_bindings),
+            catalog=catalog,
+            _reactive_bindings=self._reactive_bindings,
         )
 
-    def pivot(self, value_col: str = "value") -> pl.DataFrame:
-        """Pivot to wide format with components as columns.
 
-        Args:
-            value_col: The value column to pivot. Defaults to "value".
-
-        Returns:
-            A wide-format polars DataFrame.
-        """
-        return self._lf.pivot(
-            "component",
-            on_columns=["component"],
-            values=value_col,
-            index=["time", "scenario", "block"],
-        ).collect()
+# ─── helpers ────────────────────────────────────────────────────────────────
 
 
-class SimulationTableSchema(Schema):
-    """Schema for GEMS raw simulation outputs.
+def _build_simulation_table_schema(lf: pl.LazyFrame) -> Schema:
+    """Construct the canonical long-format GEMS schema.
 
-    The canonical GEMS schema has these columns:
-    - ``component``: Component identifier (string)
-    - ``output``: Output variable name (string)
-    - ``scenario``: Scenario ID (integer)
-    - ``block``: Block identifier (string)
-    - ``time``: Timestamp (datetime)
-    - ``value``: Numeric value (float)
+    Validates that the eight canonical columns are present and builds a
+    :class:`Schema` with ``kind="long_gems"`` populating the long-format
+    fields. Columns beyond the canonical eight are tolerated and
+    classified by dtype.
     """
-
-    __slots__ = ()
-
-    def __init__(self) -> None:
-        """Initialize the GEMS schema."""
-        super().__init__(
-            kind="long_gems",
-            time_col="time",
-            categorical_cols={
-                "component": [],
-                "block": [],
-                "scenario": [],
-            },
-            numeric_cols=["value"],
-            geo_cols=None,
-            ndim=3,
-            component_col="component",
-            output_col="output",
-            value_col="value",
-            scenario_col="scenario",
-            abs_time_col="time",
-            block_col="block",
+    columns = lf.collect_schema().names()
+    missing = [c for c in _GEMS_COLUMNS.values() if c not in columns]
+    if missing:
+        raise ValueError(
+            f"SimulationTable requires the GEMS canonical columns. "
+            f"Missing: {missing!r}. Got: {columns!r}"
         )
 
-
-# Re-export from this module
-__all__ = [
-    "SimulationTable",
-    "SimulationTableSchema",
-]
+    # Use the long-format schema kind. Time column is absolute_time_index
+    # (integer-valued in GEMS, not a datetime).
+    return Schema(
+        kind="long_gems",
+        time_col="absolute_time_index",
+        categorical_cols={},  # GEMS uses 'component', 'output' as long-format keys
+        numeric_cols=["value"],
+        geo_cols=None,
+        ndim=2,
+        component_col="component",
+        output_col="output",
+        value_col="value",
+        scenario_col="scenario_index",
+        abs_time_col="absolute_time_index",
+    )

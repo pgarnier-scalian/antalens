@@ -70,7 +70,7 @@ def main() -> None:
             path,
             name=path.stem,
             time_col="absolute_time_index",
-        )
+        )  # type: ignore
 
     # ── Discover available outputs and scenarios ──────────────────────────
     # Prefer GEMS accessors if the stub provides them; fall back to a
@@ -155,10 +155,7 @@ def main() -> None:
             from antalens.catalog import StackLayer  # type: ignore[attr-defined]
             from antalens.catalog import StackTemplateConfig as StackTemplate
         except ImportError:
-            from antalens.theme.stack_templates import (  # type: ignore[no-redef]
-                StackLayer,
-                StackTemplate,
-            )  # type: ignore
+            from antalens.theme.stack_templates import StackLayer, StackTemplate  # type: ignore
 
         palette = get_active_theme().palette_categorical
         custom_template = StackTemplate(

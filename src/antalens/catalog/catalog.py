@@ -183,3 +183,40 @@ class Catalog:
             stack_templates=stack_templates,
             _yaml_path=yaml_path,
         )
+
+    def components_of_kind(self, kind: str, candidates: list[str] | None = None) -> list[str]:
+        """Return component names matching a given kind via the catalog's patterns.
+
+        Walks ``component_patterns`` in order, finds those matching ``kind``,
+        and tests each candidate component name against the corresponding
+        regex. A candidate matches the kind if it matches at least one
+        pattern of that kind.
+
+        Args:
+            kind: The component kind to match (e.g. ``"generator"``,
+                ``"link"``).
+            candidates: List of component names to test. Typically the
+                ``.components`` of a :class:`SimulationTable`. If ``None``,
+                returns an empty list (the catalog alone can't enumerate
+                what components exist — it only knows the parsing rules).
+
+        Returns:
+            The subset of ``candidates`` whose names match a pattern
+            registered for the given kind. Order matches ``candidates``.
+
+        Examples:
+            >>> cat = Catalog.from_yaml("catalog.yml")  # doctest: +SKIP
+            >>> sim = al.io.load_simulation_table("sim.parquet")  # doctest: +SKIP
+            >>> generators = cat.components_of_kind("generator", sim.components)  # doctest: +SKIP
+        """
+        import re
+
+        if candidates is None:
+            return []
+
+        # Pre-compile all patterns for the requested kind, once.
+        kind_patterns = [re.compile(p.pattern) for p in self.component_patterns if p.kind == kind]
+        if not kind_patterns:
+            return []
+
+        return [name for name in candidates if any(rx.match(name) for rx in kind_patterns)]

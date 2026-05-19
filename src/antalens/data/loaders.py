@@ -25,12 +25,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
 
+from antalens.catalog.catalog import Catalog
 from antalens.data.dataset import Dataset
 from antalens.data.schema import infer_schema
+from antalens.data.simulation_table import SimulationTable
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -173,6 +175,105 @@ def load_csv(
     )
     schema = infer_schema(lf, time_col=time_col)
     return Dataset(lf, schema=schema, name=name)
+
+
+def load_simulation_table(
+    source: PathLike,
+    *,
+    name: str | None = None,
+    catalog: Catalog | PathLike | None = None,
+    backend: Literal["polars", "duckdb", "auto"] = "auto",
+    scenarios: list[int] | None = None,
+    **read_kwargs: Any,
+) -> SimulationTable:
+    """Load a GEMS SimulationTable from parquet or CSV.
+
+    The file must conform to the GEMS canonical schema (see ``gems.md``
+    §2): eight columns with names ``block``, ``component``, ``output``,
+    ``absolute_time_index``, ``block_time_index``, ``scenario_index``,
+    ``value``, ``basis_status``.
+
+    Args:
+        source: Path to a parquet or CSV file. The file extension
+            determines the underlying loader.
+        name: Optional display name. Defaults to the file stem.
+        catalog: Optional :class:`~antalens.catalog.Catalog` instance,
+            or a path to a YAML file to load. Attached to the resulting
+            SimulationTable for semantic enrichment.
+        backend: Reserved for the DuckDB integration (Phase 4). Currently
+            only ``"polars"`` is supported; ``"auto"`` and ``"duckdb"``
+            warn and fall back to ``"polars"``.
+        scenarios: Optional list of scenario indices to pre-filter on
+            load. Useful for skipping unwanted scenarios on very large
+            files where filtering after load is wasteful.
+        **read_kwargs: Additional keyword arguments forwarded to the
+            underlying loader (``polars.scan_parquet`` or
+            ``polars.scan_csv``).
+
+    Returns:
+        A :class:`~antalens.data.simulation_table.SimulationTable`.
+
+    Raises:
+        FileNotFoundError: If ``source`` does not exist.
+        ValueError: If the file does not contain the GEMS canonical
+            columns.
+
+    Examples:
+        Basic load from parquet::
+
+            sim = al.io.load_simulation_table("output.parquet")
+            print(sim.outputs)
+
+        Load with catalog and scenario filter::
+
+            sim = al.io.load_simulation_table(
+                "output.parquet",
+                catalog="catalog.yml",
+                scenarios=[0, 1, 2],
+            )
+    """
+    from antalens.data.simulation_table import SimulationTable
+
+    path = Path(source) if isinstance(source, str | Path) else source
+    _check_path_exists(path)
+
+    if backend in ("auto", "duckdb"):
+        # DuckDB lands in Phase 4 per the spec. Fall back silently to
+        # polars; once DuckDB is wired we'll route auto by file size.
+        backend = "polars"
+
+    # Route by extension. CSV uses "None" as null value because LP solver
+    # output (the dominant CSV use case) writes literal "None" strings
+    # for unbounded LP variables.
+    suffix = path.suffix.lower()
+    if suffix == ".parquet":
+        lf = pl.scan_parquet(path, **read_kwargs)
+    elif suffix == ".csv":
+        null_values = read_kwargs.pop("null_values", ["", "None", "NA", "NaN", "null"])
+        lf = pl.scan_csv(path, null_values=null_values, **read_kwargs)
+    else:
+        raise ValueError(
+            f"load_simulation_table expected .parquet or .csv, got {suffix!r}: {path!s}"
+        )
+
+    if scenarios is not None:
+        lf = lf.filter(pl.col("scenario_index").is_in(scenarios))
+
+    # Resolve catalog if a path was given.
+    resolved_catalog = None
+    if catalog is not None:
+        if isinstance(catalog, str | Path):
+            from antalens.catalog import load_catalog
+
+            resolved_catalog = load_catalog(catalog)
+        else:
+            resolved_catalog = catalog
+
+    return SimulationTable(
+        lf,
+        name=name or path.stem,
+        catalog=resolved_catalog,
+    )
 
 
 # ─── from_dataframe ─────────────────────────────────────────────────────────

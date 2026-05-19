@@ -1,21 +1,34 @@
-"""Catalog YAML parser (stub for Phase 2)."""
+"""Public ``load_catalog`` function.
+
+A thin wrapper over :meth:`Catalog.from_yaml`. Exists so users can write
+``al.catalog.load_catalog(path)`` matching the spec's public API, while
+the actual parsing logic lives on the :class:`Catalog` class itself.
+"""
 
 from __future__ import annotations
 
+from pathlib import Path
 
-def parse_catalog_yaml(*args: object, **kwargs: object) -> None:
-    """Parse a catalog YAML file.
+from antalens.catalog import Catalog
 
-    .. deprecated:: 0.2.0
-        This function is a placeholder for Phase 2 implementation.
-        Use :meth:`Catalog.from_yaml` directly instead.
+PathLike = str | Path
+
+
+def load_catalog(path: PathLike) -> Catalog:
+    """Load a catalog from a YAML file.
+
+    Thin delegate to :meth:`Catalog.from_yaml`. Provided for API
+    symmetry with :func:`antalens.io.load_parquet`,
+    :func:`antalens.io.load_simulation_table`, etc.
+
+    Args:
+        path: Path to a YAML catalog file.
+
+    Returns:
+        A :class:`Catalog` instance.
 
     Raises:
-        NotImplementedError: Always raised.
+        FileNotFoundError: If the YAML file doesn't exist.
+        yaml.YAMLError: If the file is malformed.
     """
-    raise NotImplementedError(
-        "parse_catalog_yaml is a Phase 2 placeholder. Use Catalog.from_yaml('path.yaml') instead."
-    )
-
-
-__all__ = ["parse_catalog_yaml"]
+    return Catalog.from_yaml(path)
